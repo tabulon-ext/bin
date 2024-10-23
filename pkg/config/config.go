@@ -35,6 +35,7 @@ type Binary struct {
 	// the package path in config so we don't ask the user to select
 	// the path again when upgrading
 	PackagePath string `json:"package_path"`
+	Pinned      bool   `json:"pinned"`
 }
 
 func CheckAndLoad() error {
@@ -94,6 +95,11 @@ func CheckAndLoad() error {
 		}
 
 	}
+
+	if cfg.Bins == nil {
+		cfg.Bins = map[string]*Binary{}
+	}
+
 	log.Debugf("Download path set to %s", cfg.DefaultPath)
 	return nil
 }
@@ -142,7 +148,6 @@ func write() error {
 	decoder := json.NewEncoder(f)
 	decoder.SetIndent("", "    ")
 	err = decoder.Encode(cfg)
-
 	if err != nil {
 		return err
 	}
@@ -182,8 +187,10 @@ func GetOS() []string {
 //   - if "XDG_CONFIG_HOME" is set, return "$XDG_CONFIG_HOME/bin"
 //   - if "$HOME/.config" exists, return "$home/.config/bin"
 //   - default to "$HOME/.bin/"
+//
 // ToDo: move the function to config_unix.go and add a similar function for windows,
-//       %APPDATA% might be the right place on windows
+//
+//	%APPDATA% might be the right place on windows
 func getConfigPath() (string, error) {
 	home, homeErr := os.UserHomeDir()
 	if homeErr == nil {

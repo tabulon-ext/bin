@@ -59,6 +59,10 @@ func newUpdateCmd() *updateCmd {
 					if err != nil {
 						return err
 					}
+					if cfg.Bins[bin].Pinned {
+						log.Infof("%s is a pinned binary", a)
+						continue
+					}
 					binsToProcess[bin] = cfg.Bins[bin]
 				}
 			} else {
@@ -114,7 +118,7 @@ func newUpdateCmd() *updateCmd {
 					return err
 				}
 
-				pResult, err := p.Fetch(&providers.FetchOpts{All: root.opts.all, PackagePath: b.PackagePath, SkipPatchCheck: root.opts.skipPathCheck})
+				pResult, err := p.Fetch(&providers.FetchOpts{All: root.opts.all, PackagePath: b.PackagePath, SkipPatchCheck: root.opts.skipPathCheck, PackageName: b.RemoteName})
 				if err != nil {
 					if root.opts.continueOnError {
 						updateFailures[b] = fmt.Errorf("Error while fetching %v: %w", ui.url, err)
@@ -123,15 +127,16 @@ func newUpdateCmd() *updateCmd {
 					return err
 				}
 
-				if err = saveToDisk(pResult, b.Path, true); err != nil {
-					return fmt.Errorf("Error installing binary %w", err)
+				hash, err := saveToDisk(pResult, b.Path, true)
+				if err != nil {
+					return fmt.Errorf("error installing binary: %w", err)
 				}
 
 				err = config.UpsertBinary(&config.Binary{
 					RemoteName:  pResult.Name,
 					Path:        b.Path,
 					Version:     pResult.Version,
-					Hash:        fmt.Sprintf("%x", pResult.Hash.Sum(nil)),
+					Hash:        fmt.Sprintf("%x", hash),
 					URL:         ui.url,
 					PackagePath: pResult.PackagePath,
 				})
