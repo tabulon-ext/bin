@@ -2,7 +2,6 @@ package providers
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -30,7 +29,11 @@ func (g *gitHub) Fetch(opts *FetchOpts) (*File, error) {
 	// If we have a tag, let's fetch from there
 	var err error
 	var resp *github.Response
-	if len(g.tag) > 0 {
+	if len(g.tag) > 0 || len(opts.Version) > 0 {
+		if len(opts.Version) > 0 {
+			// this is used by for the `ensure` command
+			g.tag = opts.Version
+		}
 		log.Infof("Getting %s release for %s/%s", g.tag, g.owner, g.repo)
 		release, _, err = g.client.Repositories.GetReleaseByTag(context.TODO(), g.owner, g.repo, g.tag)
 	} else {
@@ -49,7 +52,7 @@ func (g *gitHub) Fetch(opts *FetchOpts) (*File, error) {
 	for _, a := range release.Assets {
 		candidates = append(candidates, &assets.Asset{Name: a.GetName(), URL: a.GetURL()})
 	}
-	f := assets.NewFilter(&assets.FilterOpts{SkipScoring: opts.All, PackagePath: opts.PackagePath, SkipPathCheck: opts.SkipPatchCheck})
+	f := assets.NewFilter(&assets.FilterOpts{SkipScoring: opts.All, PackagePath: opts.PackagePath, SkipPathCheck: opts.SkipPatchCheck, PackageName: opts.PackageName})
 
 	gf, err := f.FilterAssets(g.repo, candidates)
 	if err != nil {
@@ -71,7 +74,7 @@ func (g *gitHub) Fetch(opts *FetchOpts) (*File, error) {
 	// TODO calculate file hash. Not sure if we can / should do it here
 	// since we don't want to read the file unnecesarily. Additionally, sometimes
 	// releases have .sha256 files, so it'd be nice to check for those also
-	file := &File{Data: outFile.Source, Name: assets.SanitizeName(outFile.Name, version), Hash: sha256.New(), Version: version, PackagePath: outFile.PackagePath}
+	file := &File{Data: outFile.Source, Name: outFile.Name, Version: version, PackagePath: outFile.PackagePath}
 
 	return file, nil
 }
@@ -114,6 +117,9 @@ func newGitHub(u *url.URL) (Provider, error) {
 	}
 
 	token := os.Getenv("GITHUB_AUTH_TOKEN")
+	if len(token) == 0 {
+		token = os.Getenv("GITHUB_TOKEN")
+	}
 
 	// GHES client
 	gbu := os.Getenv("GHES_BASE_URL")

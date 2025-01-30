@@ -7,7 +7,6 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -77,6 +76,10 @@ type Filter struct {
 type FilterOpts struct {
 	SkipScoring   bool
 	SkipPathCheck bool
+
+	// In case of updates, we're sending the previous version package path
+	// so in case it's the same one, we can re-use it.
+	PackageName string
 
 	// If target file is in a package format (tar, zip,etc) use this
 	// variable to filter the resulting outputs. This is very useful
@@ -367,7 +370,7 @@ func (f *Filter) processTar(name string, r io.Reader) (*finalFile, error) {
 			// isn't there a way just to store the reference
 			// where this data is so we don't have to do this or
 			// re-scan the archive twice afterwards?
-			bs, err := ioutil.ReadAll(tr)
+			bs, err := io.ReadAll(tr)
 			if err != nil {
 				return nil, err
 			}
@@ -433,7 +436,7 @@ func (f *Filter) processZip(name string, r io.Reader) (*finalFile, error) {
 		// isn't there a way just to store the reference
 		// where this data is so we don't have to do this or
 		// re-scan the archive twice afterwards?
-		bs, err := ioutil.ReadAll(zr)
+		bs, err := io.ReadAll(zr)
 		if err != nil {
 			return nil, err
 		}

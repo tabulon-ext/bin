@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/apex/log"
+	"github.com/marcosnils/bin/pkg/assets"
 	"github.com/marcosnils/bin/pkg/config"
 	"github.com/marcosnils/bin/pkg/providers"
 	"github.com/spf13/cobra"
@@ -36,19 +38,14 @@ func newInstallCmd() *installCmd {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			u := args[0]
 
-			var path, argpath string
+			var resolvedPath string
 			if len(args) > 1 {
-				argpath = args[1]
-				var err error
-				// Resolve to absolute path
-				if path, err = filepath.Abs(os.ExpandEnv(args[1])); err != nil {
-					return err
-				}
+				resolvedPath = args[1]
 			} else if len(config.Get().DefaultPath) > 0 {
-				path = config.Get().DefaultPath
+				resolvedPath = config.Get().DefaultPath
 			} else {
 				var err error
-				path, err = os.Getwd()
+				resolvedPath, err = os.Getwd()
 				if err != nil {
 					return err
 				}
@@ -67,29 +64,25 @@ func newInstallCmd() *installCmd {
 				return err
 			}
 
-			path, err = checkFinalPath(path, pResult.Name)
+			resolvedPath, err = checkFinalPath(resolvedPath, assets.SanitizeName(pResult.Name, pResult.Version))
 			if err != nil {
 				return err
 			}
 
-			if len(argpath) == 0 {
-				argpath = path
-			}
-
-			if err = saveToDisk(pResult, path, root.opts.force); err != nil {
+			hash, err := saveToDisk(pResult, resolvedPath, root.opts.force)
+			if err != nil {
 				return fmt.Errorf("error installing binary: %w", err)
 			}
 
 			err = config.UpsertBinary(&config.Binary{
 				RemoteName:  pResult.Name,
-				Path:        argpath,
+				Path:        resolvedPath,
 				Version:     pResult.Version,
-				Hash:        fmt.Sprintf("%x", pResult.Hash.Sum(nil)),
+				Hash:        fmt.Sprintf("%x", hash),
 				URL:         u,
 				Provider:    p.GetID(),
 				PackagePath: pResult.PackagePath,
 			})
-
 			if err != nil {
 				return err
 			}
@@ -132,7 +125,7 @@ func checkFinalPath(path, fileName string) (string, error) {
 
 // TODO check if other binary has the same hash and warn about it.
 // TODO if the file is zipped, tared, whatever then extract it
-func saveToDisk(f *providers.File, path string, overwrite bool) error {
+func saveToDisk(f *providers.File, path string, overwrite bool) ([]byte, error) {
 	epath := os.ExpandEnv((path))
 
 	var extraFlags int = os.O_EXCL
@@ -142,22 +135,26 @@ func saveToDisk(f *providers.File, path string, overwrite bool) error {
 		err := os.Remove(epath)
 		log.Debugf("Overwrite flag set, removing file %s\n", epath)
 		if err != nil && !os.IsNotExist(err) {
-			return err
+			return nil, err
 		}
 	}
 
 	file, err := os.OpenFile(epath, os.O_RDWR|os.O_CREATE|extraFlags, 0o766)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	defer file.Close()
 
+	h := sha256.New()
+
+	tr := io.TeeReader(f.Data, h)
+
 	log.Infof("Copying for %s@%s into %s", f.Name, f.Version, epath)
-	_, err = io.Copy(file, f.Data)
+	_, err = io.Copy(file, tr)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return h.Sum(nil), nil
 }
